@@ -2,9 +2,9 @@
 import { inject, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
-import { useUserStore } from '@/stores/user-store';
+import { createUserStore } from '@/stores/user-store';
 import {
-  dayjsKey, callKey, isPasswordAuthKey, isFxaAuthKey,
+  dayjsKey, callKey, isPasswordAuthKey, isFxaAuthKey, isAccountsAuthKey,
 } from '@/keys';
 import {
   BooleanResponse, AuthUrlResponse, AuthUrl, Error, PydanticException, Alert,
@@ -26,8 +26,8 @@ const route = useRoute();
 const router = useRouter();
 const isPasswordAuth = inject(isPasswordAuthKey);
 const isFxaAuth = inject(isFxaAuthKey);
-const user = useUserStore();
-user.init(call);
+const isAccountsAuth = inject(isAccountsAuthKey);
+const user = createUserStore(call);
 
 // Don't show the invite code field, only the "Join the waiting list" part
 const hideInviteField = ref(false);
@@ -132,7 +132,8 @@ const login = async () => {
     }
   }
 
-  if (isFxaAuth) {
+  if (isFxaAuth || isAccountsAuth) {
+    const apiUrl = isFxaAuth ? 'fxa_login' : 'auth/accounts';
     const params = new URLSearchParams({
       email: email.value,
       timezone: dj.tz.guess(),
@@ -142,7 +143,7 @@ const login = async () => {
       params.append('invite_code', inviteCode.value.trim());
     }
 
-    const { error, data }: AuthUrlResponse = await call(`fxa_login?${params}`).get().json();
+    const { error, data }: AuthUrlResponse = await call(`${apiUrl}?${params}`).get().json();
 
     if (error.value) {
       loginError.value = handleFormError(t, formRef, data.value as PydanticException);
@@ -249,7 +250,7 @@ const onEnter = () => {
             v-model="inviteCode"
             :help="t('login.form.no-invite-code')"
             data-testid="login-invite-code-input"
-          >{{ t('label.inviteCode') }}</text-input>
+          >{{ t('label.inviteCode', { 'count': 1 }) }}</text-input>
         </form>
       </div>
       <template v-slot:actions>

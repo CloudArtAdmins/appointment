@@ -4,11 +4,6 @@ import {
 } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import { useUserStore } from '@/stores/user-store';
-import { callKey } from '@/keys';
-import {
-  StringListResponse, SubscriberResponse, BlobResponse, BooleanResponse,
-} from '@/models';
 import CautionButton from '@/elements/CautionButton.vue';
 import ConfirmationModal from '@/components/ConfirmationModal.vue';
 import PrimaryButton from '@/elements/PrimaryButton.vue';
@@ -20,21 +15,25 @@ import ToolTip from '@/elements/ToolTip.vue';
 import { IconExternalLink, IconInfoCircle } from '@tabler/icons-vue';
 
 // stores
-import { useExternalConnectionsStore } from '@/stores/external-connections-store';
-import { useScheduleStore } from '@/stores/schedule-store';
+import UserInviteTable from '@/components/UserInviteTable.vue';
+import { createExternalConnectionsStore } from '@/stores/external-connections-store';
+import { createScheduleStore } from '@/stores/schedule-store';
 
 import { MetricEvents } from '@/definitions';
 import { usePosthog, posthog } from '@/composables/posthog';
-import UserInviteTable from '@/components/UserInviteTable.vue';
+import {
+  StringListResponse, SubscriberResponse, BlobResponse, BooleanResponse,
+} from '@/models';
+import { callKey } from '@/keys';
+import { createUserStore } from '@/stores/user-store';
 
 // component constants
 const { t } = useI18n({ useScope: 'global' });
 const call = inject(callKey);
 const router = useRouter();
-const schedule = useScheduleStore();
-const externalConnectionsStore = useExternalConnectionsStore();
-const user = useUserStore();
-user.init(call);
+const schedule = createScheduleStore(call);
+const externalConnectionsStore = createExternalConnectionsStore(call);
+const user = createUserStore(call);
 
 const activeUsername = ref(user.data.username);
 const activeDisplayName = ref(user.data.name);
@@ -66,8 +65,8 @@ const getAvailableEmails = async () => {
 
 const refreshData = async () => Promise.all([
   user.profile(),
-  schedule.fetch(call, true),
-  externalConnectionsStore.fetch(call),
+  schedule.fetch(true),
+  externalConnectionsStore.fetch(),
   getAvailableEmails(),
 ]);
 
@@ -165,7 +164,7 @@ const refreshLinkConfirm = async () => {
  * Request a data download, and prompt the user to download the data.
  */
 const actuallyDownloadData = async () => {
-  const { data }: BlobResponse = await call('account/download').get().blob();
+  const { data }: BlobResponse = await call('account/download').post().blob();
   if (!data || !data.value) {
     // TODO: show error
     // console.error('Failed to download blob!!');
@@ -342,7 +341,7 @@ const actuallyDeleteAccount = async () => {
     :open="refreshLinkModalOpen"
     :title="t('label.refreshLink')"
     :message="t('text.refreshLinkNotice')"
-    :confirm-label="t('label.refresh')"
+    :confirm-label="t('label.save')"
     :cancel-label="t('label.cancel')"
     @confirm="() => refreshLinkConfirm()"
     @close="closeModals"

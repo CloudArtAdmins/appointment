@@ -2,15 +2,25 @@ import { test, expect } from '@playwright/test';
 import { BookingPage } from '../pages/booking-page';
 import { DashboardPage } from '../pages/dashboard-page';
 import { navigateToAppointmentAndSignIn } from '../utils/utils';
-import { APPT_DISPLAY_NAME, APPT_BOOKEE_NAME, APPT_BOOKEE_EMAIL,
-  PLAYWRIGHT_TAG_PROD_SANITY, PLAYWRIGHT_TAG_E2E_SUITE } from '../const/constants';
+
+import {
+  APPT_DISPLAY_NAME,
+  APPT_BOOKEE_NAME,
+  APPT_BOOKEE_EMAIL,
+  PLAYWRIGHT_TAG_PROD_SANITY,
+  PLAYWRIGHT_TAG_E2E_SUITE,
+  TIMEOUT_3_SECONDS,
+  TIMEOUT_30_SECONDS,
+  TIMEOUT_60_SECONDS,
+  APPT_TIMEZONE_SETTING_TORONTO,
+} from '../const/constants';
 
 var bookingPage: BookingPage;
 var dashboardPage: DashboardPage;
 
 // verify booking page loaded successfully
 const verifyBookingPageLoaded = async () => {
-  await expect(bookingPage.titleText).toBeVisible({ timeout: 60_000 });
+  await expect(bookingPage.titleText).toBeVisible({ timeout: TIMEOUT_60_SECONDS });
   await expect(bookingPage.titleText).toContainText(APPT_DISPLAY_NAME);
   await expect(bookingPage.invitingText).toBeVisible();
   await expect(bookingPage.invitingText).toContainText(APPT_DISPLAY_NAME);
@@ -52,6 +62,14 @@ test.beforeEach(async ({ page }) => {
   dashboardPage = new DashboardPage(page);
 });
 
+// the share link (request a booking page) will display in the local browser context timezone but the main
+// appointment account settings could be a different timezone (if so the test will fail to find the booked
+// appointment since the time slot value will not match); set the browser context to always be in
+// `America/Toronto` so the share link will be in the same timezone as the main account settings
+test.use({
+  timezoneId: APPT_TIMEZONE_SETTING_TORONTO,
+});
+
 // verify we are able to book an appointment using existing user's share link
 test.describe('book an appointment', () => {
   test('able to access booking page via short link', {
@@ -73,7 +91,7 @@ test.describe('book an appointment', () => {
   }, async ({ page }) => {
     // in order to ensure we find an available slot we can click on, first switch to week view URL
     await bookingPage.gotoBookingPageWeekView();
-    await expect(bookingPage.titleText).toBeVisible({ timeout: 30_000 });
+    await expect(bookingPage.titleText).toBeVisible({ timeout: TIMEOUT_30_SECONDS });
 
     // now select an available booking time slot  
     const selectedSlot: string|null = await bookingPage.selectAvailableBookingSlot(APPT_DISPLAY_NAME);
@@ -87,7 +105,7 @@ test.describe('book an appointment', () => {
 
     // by default after a slot is booked it requires confirmation from the host user first
     // 'boooking request sent' text appears twice, once in the pop-up and once in underlying page
-    await expect(bookingPage.requestSentTitleText.first()).toBeVisible({ timeout: 60_000 });
+    await expect(bookingPage.requestSentTitleText.first()).toBeVisible({ timeout: TIMEOUT_60_SECONDS });
     await expect(bookingPage.requestSentTitleText.nth(1)).toBeVisible();
 
     // booking request sent dialog availability text contains correct user name
@@ -117,6 +135,9 @@ test.describe('book an appointment', () => {
     // now verify a corresponding pending booking was created on the host account's list of pending bookings
     // (drop the day of the week from our time slot string as this function just needs the month, day, and year)
     const expMonthDayYear = expDateStr.substring(expDateStr.indexOf(',') + 2);
+    // wait a few seconds for the appointment dashboard to update, sometimes the test is so fast when it
+    // switches back to the dashboard the new pending appointment hasn't been added/displayed yet
+    await page.waitForTimeout(TIMEOUT_3_SECONDS);
     await dashboardPage.verifyEventCreated(APPT_DISPLAY_NAME, APPT_BOOKEE_NAME, expMonthDayYear, expTimeStr);
   });
 });

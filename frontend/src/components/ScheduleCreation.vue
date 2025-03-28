@@ -36,18 +36,18 @@ import { IconChevronDown, IconInfoCircle } from '@tabler/icons-vue';
 
 // stores
 import { useCalendarStore } from '@/stores/calendar-store';
-import { useExternalConnectionsStore } from '@/stores/external-connections-store';
-import { useScheduleStore } from '@/stores/schedule-store';
+import { createExternalConnectionsStore } from '@/stores/external-connections-store';
+import { createScheduleStore } from '@/stores/schedule-store';
 import router from '@/router';
 
 // component constants
+const call = inject(callKey);
 const user = useUserStore();
 const calendarStore = useCalendarStore();
-const externalConnectionStore = useExternalConnectionsStore();
-const scheduleStore = useScheduleStore();
+const externalConnectionStore = createExternalConnectionsStore(call);
+const scheduleStore = createScheduleStore(call);
 const { t } = useI18n();
 const dj = inject(dayjsKey);
-const call = inject(callKey);
 const isoWeekdays = inject(isoWeekdaysKey);
 const dateFormat = DateFormatStrings.QalendarFullDay;
 const firstStep = ScheduleCreationState.Availability;
@@ -117,7 +117,7 @@ const generateZoomLink = ref(scheduleInput.value.meeting_link_provider === Meeti
 
 onMounted(() => {
   // Retrieve the current external connections
-  externalConnectionStore.fetch(call);
+  externalConnectionStore.fetch();
 
   if (props.schedule) {
     scheduleInput.value = { ...props.schedule };
@@ -186,6 +186,9 @@ const getScheduleAppointment = (): ScheduleAppointment => ({
 
 const isFormDirty = computed(
   () => JSON.stringify(scheduleInput.value) !== JSON.stringify(referenceSchedule.value),
+);
+const isSlugDirty = computed(
+  () => scheduleInput.value.slug !== referenceSchedule.value.slug,
 );
 
 // handle notes char limit
@@ -262,6 +265,17 @@ const scheduleValidationError = (schedule: Schedule): string|null => {
   return null;
 };
 
+// Update slug with a random 8 character string
+const refreshSlugModalOpen = ref(false);
+const showRefreshSlugConfirmation = async () => {
+  refreshSlugModalOpen.value = true;
+};
+
+const closeModals = () => {
+  savedConfirmation.show = false;
+  refreshSlugModalOpen.value = false;
+};
+
 // handle actual schedule creation/update
 const savingInProgress = ref(false);
 const saveSchedule = async (withConfirmation = true) => {
@@ -297,8 +311,8 @@ const saveSchedule = async (withConfirmation = true) => {
 
   // save schedule data
   const response = props.schedule
-    ? await scheduleStore.updateSchedule(call, props.schedule.id, obj)
-    : await scheduleStore.createSchedule(call, obj);
+    ? await scheduleStore.updateSchedule(props.schedule.id, obj)
+    : await scheduleStore.createSchedule(obj);
 
   // eslint-disable-next-line no-prototype-builtins
   if (response.hasOwnProperty('error')) {
@@ -328,17 +342,7 @@ const saveSchedule = async (withConfirmation = true) => {
   // Update our reference schedule!
   referenceSchedule.value = { ...scheduleInput.value };
   revertForm(false);
-};
-
-// Update slug with a random 8 character string
-const refreshSlugModalOpen = ref(false);
-const showRefreshSlugConfirmation = async () => {
-  refreshSlugModalOpen.value = true;
-};
-
-const closeModals = () => {
-  savedConfirmation.show = false;
-  refreshSlugModalOpen.value = false;
+  closeModals();
 };
 
 const refreshSlug = () => {
@@ -728,7 +732,7 @@ watch(
               </text-input>
               <link-button
                 class="p-0.5"
-                @click="scheduleInput.active ? showRefreshSlugConfirmation() : null"
+                @click="scheduleInput.active ? refreshSlug() : null"
                 :disabled="!scheduleInput.active"
                 data-testid="dashboard-booking-settings-link-refresh-btn"
               >
@@ -802,7 +806,7 @@ watch(
     >
       <primary-button
         class="btn-save w-full"
-        @click="saveSchedule(!existing)"
+        @click="isSlugDirty ? showRefreshSlugConfirmation() : saveSchedule(!existing)"
         :disabled="!scheduleInput.active || savingInProgress"
         data-testid="dashboard-save-changes-btn"
       >
@@ -847,9 +851,9 @@ watch(
     :open="refreshSlugModalOpen"
     :title="t('label.refreshLink')"
     :message="t('text.refreshLinkNotice')"
-    :confirm-label="t('label.refresh')"
+    :confirm-label="t('label.save')"
     :cancel-label="t('label.cancel')"
-    @confirm="() => refreshSlug()"
+    @confirm="saveSchedule(!existing)"
     @close="closeModals"
   ></confirmation-modal>
 </template>

@@ -5,26 +5,32 @@ import {
 } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
-import {
-  apiUrlKey, callKey, refreshKey, isPasswordAuthKey, isFxaAuthKey, fxaEditProfileUrlKey,
-} from '@/keys';
-import { StringResponse } from '@/models';
-import { usePosthog, posthog } from '@/composables/posthog';
 import UAParser from 'ua-parser-js';
-
 import NavBar from '@/components/NavBar.vue';
 import TitleBar from '@/components/TitleBar.vue';
 import FooterBar from '@/components/FooterBar.vue';
 import SiteNotification from '@/elements/SiteNotification.vue';
 import RouteNotFoundView from '@/views/errors/RouteNotFoundView.vue';
 import NotAuthenticatedView from '@/views/errors/NotAuthenticatedView.vue';
+import {
+  apiUrlKey,
+  callKey,
+  refreshKey,
+  isPasswordAuthKey,
+  isFxaAuthKey,
+  fxaEditProfileUrlKey,
+  isAccountsAuthKey,
+} from '@/keys';
+import { StringResponse } from '@/models';
+import { usePosthog, posthog } from '@/composables/posthog';
 
 // stores
 import { useSiteNotificationStore } from '@/stores/alert-store';
 import { useUserStore } from '@/stores/user-store';
-import { useCalendarStore } from '@/stores/calendar-store';
-import { useAppointmentStore } from '@/stores/appointment-store';
-import { useScheduleStore } from '@/stores/schedule-store';
+import { createCalendarStore } from '@/stores/calendar-store';
+import { createAppointmentStore } from '@/stores/appointment-store';
+import { createScheduleStore } from '@/stores/schedule-store';
+import { AuthSchemes } from '@/definitions';
 
 // component constants
 const user = useUserStore();
@@ -47,11 +53,28 @@ const {
   lock: lockNotification,
 } = siteNotificationStore;
 
+const isAccountsAuth = () => import.meta.env?.VITE_AUTH_SCHEME === AuthSchemes.Accounts;
+
+provide(isPasswordAuthKey, import.meta.env?.VITE_AUTH_SCHEME === AuthSchemes.Password);
+provide(isFxaAuthKey, import.meta.env?.VITE_AUTH_SCHEME === AuthSchemes.Fxa);
+provide(fxaEditProfileUrlKey, import.meta.env?.VITE_FXA_EDIT_PROFILE);
+provide(isAccountsAuthKey, isAccountsAuth());
+
 // handle auth and fetch
 const call = createFetch({
   baseUrl: apiUrl,
   options: {
     beforeFetch({ options }) {
+      if (isAccountsAuth) {
+        // Cookies are somehow still stored as a giant `;` separated string, so do a bunch of array nonsense to retrieve our token
+        const csrf = window.document.cookie?.split('; csrftoken=')?.pop()?.split(';')?.shift()
+          ?.trim() ?? null;
+        // If you change csrf safe_methods parameter, change this too!
+        if (!['GET', 'OPTIONS', 'HEAD', 'TRACE'].includes(options?.method ?? 'GET') && csrf) {
+          options.headers['X-CSRFToken'] = csrf;
+        }
+      }
+
       if (user?.authenticated) {
         const token = user.data.accessToken;
         // @ts-expect-error ignore headers type error
@@ -98,13 +121,10 @@ const call = createFetch({
   },
 });
 
-// Initialize API calls for user store
+// Now that we created the call function, we can initialize API calls for the user store
 user.init(call);
 
 provide(callKey, call);
-provide(isPasswordAuthKey, import.meta.env?.VITE_AUTH_SCHEME === 'password');
-provide(isFxaAuthKey, import.meta.env?.VITE_AUTH_SCHEME === 'fxa');
-provide(fxaEditProfileUrlKey, import.meta.env?.VITE_FXA_EDIT_PROFILE);
 
 // menu items for main navigation
 const navItems = [
@@ -114,9 +134,9 @@ const navItems = [
 ];
 
 // db tables
-const calendarStore = useCalendarStore();
-const appointmentStore = useAppointmentStore();
-const scheduleStore = useScheduleStore();
+const calendarStore = createCalendarStore(call);
+const appointmentStore = createAppointmentStore(call);
+const scheduleStore = createScheduleStore(call);
 
 // true if route can be accessed without authentication
 const routeIsPublic = computed(
@@ -134,9 +154,9 @@ const getDbData = async () => {
   if (user?.authenticated) {
     await Promise.all([
       user.profile(),
-      calendarStore.fetch(call),
-      appointmentStore.fetch(call),
-      scheduleStore.fetch(call),
+      calendarStore.fetch(),
+      appointmentStore.fetch(),
+      scheduleStore.fetch(),
     ]);
   }
 };
@@ -188,6 +208,9 @@ const onPageLoad = async () => {
 provide(refreshKey, getDbData);
 
 onMounted(async () => {
+  // Ensure we have a cookie available for POST/PUT/DELETEs
+  await call('session-info').get();
+
   if (usePosthog) {
     const REMOVED_PROPERTY = '<removed>';
     const UNKNOWN_PROPERTY = '<unknown>';

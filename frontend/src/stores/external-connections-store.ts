@@ -11,29 +11,42 @@ export const useExternalConnectionsStore = defineStore('externalConnections', ()
   const isLoaded = ref(false);
 
   // Data
+  const accounts = ref<ExternalConnection[]>([]);
   const zoom = ref<ExternalConnection[]>([]);
   const fxa = ref<ExternalConnection[]>([]);
   const google = ref<ExternalConnection[]>([]);
   const caldav = ref<ExternalConnection[]>([]);
   const connections = computed((): ExternalConnectionCollection => ({
     // FXA should be at the top since it represents the Appointment subscriber.
+    accounts: accounts.value,
     fxa: fxa.value,
     google: google.value,
     zoom: zoom.value,
     caldav: caldav.value,
   }));
 
+  const call = ref(null);
+
+  /**
+   * Initialize store with data required at runtime
+   *
+   * @param fetch preconfigured function to perform API calls
+   */
+  const init = (fetch: Fetch) => {
+    call.value = fetch;
+  }
+
   /**
    * Get all external connections for current user
-   * @param call preconfigured API fetch function
    * @param force
    */
-  const fetch = async (call: Fetch, force = false) => {
+  const fetch = async (force = false) => {
     if (isLoaded.value && !force) {
       return;
     }
 
-    const { data }: ExternalConnectionCollectionResponse = await call('account/external-connections').get().json();
+    const { data }: ExternalConnectionCollectionResponse = await call.value('account/external-connections').get().json();
+    accounts.value = data.value?.accounts ?? [];
     zoom.value = data.value?.zoom ?? [];
     fxa.value = data.value?.fxa ?? [];
     google.value = data.value?.google ?? [];
@@ -45,6 +58,7 @@ export const useExternalConnectionsStore = defineStore('externalConnections', ()
    * Restore default state, empty and unload connections
    */
   const $reset = () => {
+    accounts.value = [];
     zoom.value = [];
     fxa.value = [];
     google.value = [];
@@ -52,9 +66,9 @@ export const useExternalConnectionsStore = defineStore('externalConnections', ()
     isLoaded.value = false;
   };
 
-  const connect = async (call: Fetch, provider: ExternalConnectionProviders, router: any) => {
+  const connect = async (provider: ExternalConnectionProviders, router: any) => {
     if (provider === ExternalConnectionProviders.Zoom) {
-      const { data } = await call('zoom/auth').get().json();
+      const { data } = await call.value('zoom/auth').get().json(); // FIXME: Add type
       // Ship them to the auth link
       window.location.href = data.value.url;
     } else if (provider === ExternalConnectionProviders.Google) {
@@ -63,13 +77,15 @@ export const useExternalConnectionsStore = defineStore('externalConnections', ()
     // CalDAV is handled in the modal
   };
 
-  const disconnect = async (call: Fetch, provider: ExternalConnectionProviders, typeId: string|null = null) => {
+  const disconnect = async (provider: ExternalConnectionProviders, typeId: string | null = null) => {
     if (provider === ExternalConnectionProviders.Zoom) {
-      return call('zoom/disconnect').post();
-    } if (provider === ExternalConnectionProviders.Google) {
-      return call('google/disconnect').post();
-    } if (provider === ExternalConnectionProviders.Caldav) {
-      return call('caldav/disconnect').post({
+      return call.value('zoom/disconnect').post();
+    }
+    if (provider === ExternalConnectionProviders.Google) {
+      return call.value('google/disconnect').post();
+    }
+    if (provider === ExternalConnectionProviders.Caldav) {
+      return call.value('caldav/disconnect').post({
         type_id: typeId,
       });
     }
@@ -78,6 +94,13 @@ export const useExternalConnectionsStore = defineStore('externalConnections', ()
   };
 
   return {
-    connections, isLoaded, fxa, zoom, google, fetch, $reset, connect, disconnect,
+    connections, isLoaded, accounts, fxa, zoom, google, init, fetch, $reset, connect, disconnect,
   };
 });
+
+
+export const createExternalConnectionsStore = (call: Fetch) => {
+  const store = useExternalConnectionsStore();
+  store.init(call);
+  return store;
+};
